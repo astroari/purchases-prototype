@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-q-s92!0!d7znhkfsjm948q4c($zm#gmv2b#ox7w%kg1h64^9($
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['invoiceextract-astroari.pythonanywhere.com']
 
 
 # Application definition
