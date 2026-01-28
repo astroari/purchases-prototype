@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.http import HttpResponse
 from .forms import UploadDocsForm
 from .data_extractor import InvoiceExtractor
-from . import erp_upload
+# from . import erp_upload  # TODO: enable when sending data to ERP
 import tempfile
 import os
 import csv
@@ -160,26 +160,26 @@ def export_csv(request):
 
 
 def upload_to_1c(request):
-    """Upload extraction results to 1C API"""
-    # Get extraction results from session
-    extraction_results_json = request.session.get('extraction_results')
-    
-    if not extraction_results_json:
-        messages.error(request, 'No extraction results found. Please upload and process files first.')
-        return redirect('upload-docs')
-    
-    try:
-        extraction_results = json.loads(extraction_results_json)
-    except (json.JSONDecodeError, TypeError):
-        messages.error(request, 'Error reading extraction results.')
-        return redirect('upload-docs')
-    
-    # Send to 1C API
-    success, message, response_data = erp_upload.send_to_1c(extraction_results)
-    
-    if success:
-        messages.success(request, message)
-    else:
-        messages.error(request, message)
-    
+    """
+    Placeholder view for future 1C/ERP integration.
+    Currently, it does not send anything and just redirects back to index.
+    """
+    # TODO: re-enable when ready to send data to ERP
+    # extraction_results_json = request.session.get('extraction_results')
+    # if not extraction_results_json:
+    #     messages.error(request, 'No extraction results found. Please upload and process files first.')
+    #     return redirect('upload-docs')
+    #
+    # try:
+    #     extraction_results = json.loads(extraction_results_json)
+    # except (json.JSONDecodeError, TypeError):
+    #     messages.error(request, 'Error reading extraction results.')
+    #     return redirect('upload-docs')
+    #
+    # success, message, response_data = erp_upload.send_to_1c(extraction_results)
+    # if success:
+    #     messages.success(request, message)
+    # else:
+    #     messages.error(request, message)
+
     return redirect('upload-docs')
