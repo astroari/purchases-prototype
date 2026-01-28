@@ -1,0 +1,155 @@
+{% extends "data_extraction/base.html"%}
+{% block content %}
+    <div class="success-container">
+        <h1>Upload Docs</h1>
+        
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+        
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="{{ form.factory.id_for_label }}">{{ form.factory.label|default:"Factory" }}</label>
+                {% if form.factory.help_text %}
+                    <p class="help-text">{{ form.factory.help_text }}</p>
+                {% endif %}
+                <div class="radio-input-wrapper">
+                    {{ form.factory }}
+                </div>
+                {% if form.factory.errors %}
+                    <div class="text-danger">{{ form.factory.errors }}</div>
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="{{ form.docs.id_for_label }}">{{ form.docs.label|default:"Select PDF files" }}</label>
+                {% if form.docs.help_text %}
+                    <p class="help-text">{{ form.docs.help_text }}</p>
+                {% endif %}
+                <div class="file-input-wrapper">
+                    {{ form.docs }}
+                </div>
+                <div class="accepted-formats">
+                    <strong>Accepted formats:</strong>
+                    <span>PDF</span>
+                </div>
+                {% if form.docs.errors %}
+                    <div class="text-danger">{{ form.docs.errors }}</div>
+                {% endif %}
+            </div>
+            
+            <button type="submit" class="submit-btn">Upload Files</button>
+        </form>
+        
+        {% if extraction_results %}
+            <div class="extracted-data">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">Extraction Results</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <form method="POST" action="{% url 'upload-to-1c' %}" style="display: inline-block; margin: 0;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-primary" style="cursor: pointer;">
+                                Create document in 1C
+                            </button>
+                        </form>
+                        <form method="GET" action="{% url 'export-csv' %}" style="display: inline-block; margin: 0;">
+                            <button type="submit" class="btn-primary" style="cursor: pointer;">
+                                📥 Export as CSV
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% for result in extraction_results %}
+                    <div class="file-extraction">
+                        <h3>{{ result.filename }}</h3>
+                        <p class="text-muted" style="margin-bottom: 15px;">Factory: {{ result.factory }}</p>
+                        
+                        {% if result.success %}
+                            <!-- <div class="stats">
+                                <div class="stat-item">
+                                    <div class="stat-label">Status</div>
+                                    <div class="stat-value" style="color: #4caf50;">Success</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Confidence</div>
+                                    <div class="stat-value">{{ result.confidence|floatformat:1 }}%</div>
+                                </div>
+                            </div> -->
+                            
+                            {% with data=result.invoice_data %}
+                                <div class="page-data">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                        <div>
+                                            <div class="stat-label">Invoice Number</div>
+                                            <div style="font-size: 16px; color: #333; margin-top: 5px;">{{ data.invoice_number|default:"Not found" }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="stat-label">Invoice Date</div>
+                                            <div style="font-size: 16px; color: #333; margin-top: 5px;">{{ data.invoice_date|default:"Not found" }}</div>
+                                        </div>
+                                    </div>
+                                    
+                                    {% if data.total_amount %}
+                                        <div style="margin-top: 15px;">
+                                            <div class="stat-label">Total Amount</div>
+                                            <div style="font-size: 20px; font-weight: 600; color: #667eea; margin-top: 5px;">€{{ data.total_amount|floatformat:2 }}</div>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                
+                                {% if data.nomenclature %}
+                                    <div class="page-tables">
+                                        <h4 style="color: #333; margin-bottom: 15px; font-size: 16px;">Line Items ({{ data.nomenclature|length }} items)</h4>
+                                        <div class="table-container">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Position</th>
+                                                        <th>Order Number</th>
+                                                        <th>Order Date</th>
+                                                        <th>Nomenclature (CA Code)</th>
+                                                        <th>Quantity</th>
+                                                        <th>Unit</th>
+                                                        <th>Unit Price</th>
+                                                        <th>Line Total</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for item in data.nomenclature %}
+                                                        <tr>
+                                                            <td>{{ item.position }}</td>
+                                                            <td>{{ item.order_number }}</td>
+                                                            <td>{{ item.order_date }}</td>
+                                                            <td>{{ item.nomenclature }}</td>
+                                                            <td>{{ item.quantity|floatformat:0 }}</td>
+                                                            <td>{{ item.unit }}</td>
+                                                            <td>€{{ item.unit_price|floatformat:2 }}</td>
+                                                            <td>€{{ item.line_total|floatformat:2 }}</td>
+                                                        </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-warning">No line items found in this invoice.</div>
+                                {% endif %}
+                            {% endwith %}
+                        {% else %}
+                            <div class="error-message">
+                                <strong>Error:</strong> {{ result.error }}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+{% endblock content %}
