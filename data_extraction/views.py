@@ -1,6 +1,8 @@
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from .forms import UploadDocsForm
 from .data_extractor import InvoiceExtractor
 # from . import erp_upload  # TODO: enable when sending data to ERP
@@ -9,6 +11,39 @@ import os
 import csv
 import json
 from datetime import datetime
+
+
+@csrf_exempt
+@require_POST
+def extract_invoice(request):
+    """API endpoint: POST a PDF file to extract invoice data. Expects multipart/form-data with key 'file'."""
+    if 'file' not in request.FILES:
+        return JsonResponse({'error': 'No file provided'}, status=400)
+
+    uploaded_file = request.FILES['file']
+    if not uploaded_file.name.lower().endswith('.pdf'):
+        return JsonResponse({'error': 'Only PDF files are supported'}, status=400)
+
+    extractor = InvoiceExtractor()
+
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+        for chunk in uploaded_file.chunks():
+            tmp.write(chunk)
+        tmp_path = tmp.name
+
+    try:
+        invoice_data, confidence = extractor.extract_from_pdf(tmp_path)
+        return JsonResponse({
+            'success': True,
+            'confidence': confidence,
+            'invoice_data': json.loads(json.dumps(invoice_data, default=str)),
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
 
 def index(request):
     form = UploadDocsForm()
