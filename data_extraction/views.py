@@ -4,7 +4,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from .forms import UploadDocsForm
-from .data_extractor import InvoiceExtractor
+from .data_extractor import InvoiceExtractor, build_1c_payloads
 # from . import erp_upload  # TODO: enable when sending data to ERP
 import tempfile
 import os
@@ -34,10 +34,16 @@ def extract_invoice(request):
     try:
         invoice_data, confidence = extractor.extract_from_pdf(tmp_path)
         invoice_data = extractor.enrich_with_ref_keys(invoice_data)
+        order_ref_keys = {
+            item["order_number"]: item["order_ref_key"]
+            for item in invoice_data.get("nomenclature", [])
+            if item.get("order_number")
+        }
+        documents_to_create = build_1c_payloads(invoice_data, order_ref_keys)
         return JsonResponse({
             'success': True,
             'confidence': confidence,
-            'invoice_data': json.loads(json.dumps(invoice_data, default=str)),
+            'documents_to_create': json.loads(json.dumps(documents_to_create, default=str)),
         })
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)

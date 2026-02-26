@@ -20,6 +20,53 @@ ODATA_API_TOKEN = os.getenv("1C_TOKEN")
 CATALOG_NOMENCLATURE = "Catalog_Номенклатура"
 DOCUMENT_ORDER = "Document_ЗаказПоставщику"
 
+# Static keys for 1C document payloads
+STATIC_KEYS = {
+    "Партнер_Key": "a5cfdc09-94ec-11ea-a9b0-505dac4282cc",
+    "Контрагент_Key": "a5cfdc0b-94ec-11ea-a9b0-505dac4282cc",
+    "Организация_Key": "6e865905-8095-11ea-a9af-505dac4282cc",
+    "Склад_Key": "0903e520-9f0b-11f0-8c5a-fff9d53af0ac",
+    "Валюта_Key": "a3e66c2c-8095-11ea-a9af-505dac4282cc",
+}
+
+
+def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
+    """
+    Build one 1C document payload per unique order number.
+    order_ref_keys: {order_number: ref_key}
+    """
+    grouped = {}
+    for item in invoice_data.get("nomenclature", []):
+        order_num = item.get("order_number")
+        if order_num not in grouped:
+            grouped[order_num] = []
+        grouped[order_num].append(item)
+
+    payloads = []
+    for order_number, items in grouped.items():
+        order_ref_key = order_ref_keys.get(order_number)
+        payload = {
+            "Date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "ЗаказПоставщику_Key": order_ref_key,
+            "Posted": False,
+            "НомерВагонаЗП": "111111",
+            "ХозяйственнаяОперация": "ЗакупкаПоИмпортуТоварыВПути",
+            "Комментарий": "TEST TEST!!",
+            **STATIC_KEYS,
+            "Товары": [
+                {
+                    "Номенклатура_Key": item.get("ref_key"),
+                    "Количество": item.get("quantity"),
+                    "Цена": item.get("unit_price"),
+                    "Сумма": item.get("line_total"),
+                    "ЗаказПоставщику_Key": order_ref_key,
+                }
+                for item in items
+            ],
+        }
+        payloads.append(payload)
+    return payloads
+
 
 def get_ref_keys(nomenclature_numbers: List[str], batch_size: int = 20) -> Dict[str, str]:
     """
