@@ -33,6 +33,7 @@ def extract_invoice(request):
 
     try:
         invoice_data, confidence = extractor.extract_from_pdf(tmp_path)
+        invoice_data = extractor.enrich_with_ref_keys(invoice_data)
         return JsonResponse({
             'success': True,
             'confidence': confidence,
@@ -74,7 +75,8 @@ def index(request):
                     
                     try:
                         invoice_data, confidence = extractor.extract_from_pdf(tmp_file_path)
-                        
+                        invoice_data = extractor.enrich_with_ref_keys(invoice_data)
+
                         extraction_results.append({
                             'filename': uploaded_file.name,
                             'factory': factory,
@@ -142,6 +144,7 @@ def export_csv(request):
         'Order Date',
         'Position',
         'Nomenclature (CA Code)',
+        'Ref Key (1C UUID)',
         'Quantity',
         'Unit',
         'Unit Price',
@@ -169,6 +172,7 @@ def export_csv(request):
                         item.get('order_date', ''),
                         item.get('position', ''),
                         item.get('nomenclature', ''),
+                        item.get('ref_key', ''),
                         item.get('quantity', ''),
                         item.get('unit', ''),
                         item.get('unit_price', ''),
@@ -181,6 +185,7 @@ def export_csv(request):
                     factory,
                     invoice_data.get('invoice_number', ''),
                     invoice_data.get('invoice_date', ''),
+                    '',
                     '',
                     '',
                     '',

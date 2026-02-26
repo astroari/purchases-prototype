@@ -3,13 +3,69 @@ Invoice Data Extractor using pdfplumber
 Extracts structured data from Hettich-style invoices
 """
 
-import pdfplumber
-import pandas as pd
-import re
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+import os
 import json
+import re
+import requests
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
+import pdfplumber
+
+# 1C OData API (for nomenclature Ref_Key lookup)
+ODATA_BASE_URL = os.getenv("1C_API_BASE_URL", "https://api.eman.uz/api/odata/eman_materials").rstrip("/")
+ODATA_API_TOKEN = os.getenv("1C_TOKEN")
+CATALOG_NOMENCLATURE = "Catalog_Номенклатура"
+
+
+def get_ref_keys(nomenclature_numbers: List[str], batch_size: int = 20) -> Dict[str, str]:
+    """
+    Fetch Ref_Key (UUID) from 1C OData for each nomenclature (CA code).
+    Returns {nomenclature_number: ref_key}.
+    """
+    if not nomenclature_numbers:
+        return {}
+    if not ODATA_API_TOKEN:
+        return {}
+
+    result = {}
+    headers = {
+        "X-API-TOKEN": ODATA_API_TOKEN,
+        "Accept": "application/json",
+    }
+    url = f"{ODATA_BASE_URL}/{CATALOG_NOMENCLATURE}"
+
+    for i in range(0, len(nomenclature_numbers), batch_size):
+        batch = nomenclature_numbers[i : i + batch_size]
+        # OData: escape single quotes in values by doubling
+        def _escape(s: str) -> str:
+            return str(s).replace("'", "''")
+
+        filter_parts = " or ".join(f"Артикул eq '{_escape(art)}'" for art in batch)
+
+        try:
+            response = requests.get(
+                url,
+                headers=headers,
+                params={
+                    "$format": "json",
+                    "$filter": filter_parts,
+                    "$select": "Ref_Key,Артикул",
+                },
+                timeout=30,
+            )
+        except requests.RequestException:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        for item in response.json().get("value", []):
+            result[item["Артикул"]] = item["Ref_Key"]
+
+    return result
 
 
 class InvoiceExtractor:
@@ -110,13 +166,14 @@ class InvoiceExtractor:
                     
                     item = {
                         "position": position,
-                        "nomenclature": catalog_code,  # Just the CA code
+                        "nomenclature": catalog_code,  # CA code (Артикул in 1C)
                         "quantity": quantity,
                         "unit": unit,
                         "unit_price": unit_price,
                         "line_total": line_total,
                         "order_number": current_order_number,
                         "order_date": current_order_date,
+                        "ref_key": None,  # 1C Ref_Key (UUID), set by enrich_with_ref_keys()
                     }
                     
                     items.append(item)
@@ -255,6 +312,24 @@ class InvoiceExtractor:
         confidence = self.calculate_confidence(invoice_data)
         
         return invoice_data, confidence
+
+    def enrich_with_ref_keys(self, invoice_data: Dict) -> Dict:
+        """
+        Enrich each nomenclature line item with 1C Ref_Key (UUID) from the OData API.
+        Sets item['ref_key'] for each line. If token is missing or API fails, ref_key stays None.
+        """
+        nomenclature_list = invoice_data.get("nomenclature") or []
+        if not nomenclature_list:
+            return invoice_data
+
+        unique_codes = list(dict.fromkeys(item.get("nomenclature") for item in nomenclature_list if item.get("nomenclature")))
+        ref_keys = get_ref_keys(unique_codes)
+
+        for item in nomenclature_list:
+            code = item.get("nomenclature")
+            item["ref_key"] = ref_keys.get(code) if code else None
+
+        return invoice_data
     
     def to_dataframe(self, invoice_data: Dict) -> pd.DataFrame:
         """Convert nomenclature to pandas DataFrame for easy viewing/export"""
@@ -268,8 +343,8 @@ class InvoiceExtractor:
         df['invoice_date'] = invoice_data.get('invoice_date')
         
         # Reorder columns
-        cols = ['invoice_number', 'invoice_date', 'order_number', 'order_date', 
-                'position', 'nomenclature', 'quantity', 'unit', 'unit_price', 'line_total']
+        cols = ['invoice_number', 'invoice_date', 'order_number', 'order_date',
+                'position', 'nomenclature', 'ref_key', 'quantity', 'unit', 'unit_price', 'line_total']
         # Only include columns that exist in the DataFrame
         cols = [col for col in cols if col in df.columns]
         df = df[cols]
