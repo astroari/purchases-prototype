@@ -14,10 +14,11 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import pdfplumber
 
-# 1C OData API (for nomenclature Ref_Key lookup)
+# 1C OData API (for nomenclature and order Ref_Key lookup)
 ODATA_BASE_URL = os.getenv("1C_API_BASE_URL", "https://api.eman.uz/api/odata/eman_materials").rstrip("/")
 ODATA_API_TOKEN = os.getenv("1C_TOKEN")
 CATALOG_NOMENCLATURE = "Catalog_Номенклатура"
+DOCUMENT_ORDER = "Document_ЗаказПоставщику"
 
 
 def get_ref_keys(nomenclature_numbers: List[str], batch_size: int = 20) -> Dict[str, str]:
@@ -64,6 +65,55 @@ def get_ref_keys(nomenclature_numbers: List[str], batch_size: int = 20) -> Dict[
 
         for item in response.json().get("value", []):
             result[item["Артикул"]] = item["Ref_Key"]
+
+    return result
+
+
+def get_order_ref_keys(order_numbers: List[str], batch_size: int = 20) -> Dict[str, str]:
+    """
+    Fetch Ref_Key (UUID) from 1C OData for each order number (НомерПоДаннымПоставщика).
+    Returns {order_number: ref_key}. Batches requests to avoid overly long filter strings.
+    """
+    if not order_numbers:
+        return {}
+    if not ODATA_API_TOKEN:
+        return {}
+
+    result = {}
+    headers = {
+        "X-API-TOKEN": ODATA_API_TOKEN,
+        "Accept": "application/json",
+    }
+    url = f"{ODATA_BASE_URL}/{DOCUMENT_ORDER}"
+
+    def _escape(s: str) -> str:
+        return str(s).replace("'", "''")
+
+    for i in range(0, len(order_numbers), batch_size):
+        batch = order_numbers[i : i + batch_size]
+        filter_parts = " or ".join(
+            f"НомерПоДаннымПоставщика eq '{_escape(num)}'" for num in batch
+        )
+
+        try:
+            response = requests.get(
+                url,
+                headers=headers,
+                params={
+                    "$format": "json",
+                    "$filter": filter_parts,
+                    "$select": "Ref_Key,НомерПоДаннымПоставщика",
+                },
+                timeout=30,
+            )
+        except requests.RequestException:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        for item in response.json().get("value", []):
+            result[item["НомерПоДаннымПоставщика"]] = item["Ref_Key"]
 
     return result
 
@@ -173,7 +223,8 @@ class InvoiceExtractor:
                         "line_total": line_total,
                         "order_number": current_order_number,
                         "order_date": current_order_date,
-                        "ref_key": None,  # 1C Ref_Key (UUID), set by enrich_with_ref_keys()
+                        "ref_key": None,  # 1C nomenclature Ref_Key, set by enrich_with_ref_keys()
+                        "order_ref_key": None,  # 1C order document Ref_Key, set by enrich_with_ref_keys()
                     }
                     
                     items.append(item)
@@ -315,8 +366,10 @@ class InvoiceExtractor:
 
     def enrich_with_ref_keys(self, invoice_data: Dict) -> Dict:
         """
-        Enrich each nomenclature line item with 1C Ref_Key (UUID) from the OData API.
-        Sets item['ref_key'] for each line. If token is missing or API fails, ref_key stays None.
+        Enrich each nomenclature line item with 1C Ref_Keys from the OData API:
+        - item['ref_key']: nomenclature (Catalog_Номенклатура) Ref_Key
+        - item['order_ref_key']: order document (Document_ЗаказПоставщику) Ref_Key
+        If token is missing or API fails, keys stay None.
         """
         nomenclature_list = invoice_data.get("nomenclature") or []
         if not nomenclature_list:
@@ -325,9 +378,14 @@ class InvoiceExtractor:
         unique_codes = list(dict.fromkeys(item.get("nomenclature") for item in nomenclature_list if item.get("nomenclature")))
         ref_keys = get_ref_keys(unique_codes)
 
+        unique_orders = list(dict.fromkeys(item.get("order_number") for item in nomenclature_list if item.get("order_number")))
+        order_ref_keys = get_order_ref_keys(unique_orders)
+
         for item in nomenclature_list:
             code = item.get("nomenclature")
             item["ref_key"] = ref_keys.get(code) if code else None
+            order_num = item.get("order_number")
+            item["order_ref_key"] = order_ref_keys.get(order_num) if order_num else None
 
         return invoice_data
     
@@ -343,7 +401,7 @@ class InvoiceExtractor:
         df['invoice_date'] = invoice_data.get('invoice_date')
         
         # Reorder columns
-        cols = ['invoice_number', 'invoice_date', 'order_number', 'order_date',
+        cols = ['invoice_number', 'invoice_date', 'order_number', 'order_date', 'order_ref_key',
                 'position', 'nomenclature', 'ref_key', 'quantity', 'unit', 'unit_price', 'line_total']
         # Only include columns that exist in the DataFrame
         cols = [col for col in cols if col in df.columns]
