@@ -11,6 +11,7 @@ import os
 import csv
 import json
 from datetime import datetime
+import requests
 
 
 @csrf_exempt
@@ -50,6 +51,121 @@ def extract_invoice(request):
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+@csrf_exempt
+@require_POST
+def create_1c_documents(request):
+    """
+    API endpoint: POST a list of 1C documents to create in the external 1C system.
+    Expects JSON body: {"documents_to_create": [ ... ]}.
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError:
+        return JsonResponse({"success": False, "error": "Invalid JSON payload"}, status=400)
+
+    documents = data.get("documents_to_create", [])
+
+    if not isinstance(documents, list):
+        return JsonResponse(
+            {"success": False, "error": "'documents_to_create' must be a list"},
+            status=400,
+        )
+
+    api_token = os.getenv("1C_TOKEN")
+    if not api_token:
+        return JsonResponse(
+            {"success": False, "error": "1C token is not configured on the server"},
+            status=500,
+        )
+
+    results = []
+    errors = []
+
+    for i, doc in enumerate(documents):
+        if not isinstance(doc, dict):
+            errors.append(
+                {
+                    "document_index": i,
+                    "status_code": None,
+                    "error": "Document must be an object",
+                }
+            )
+            continue
+
+        items = doc.get("Товары", [])
+        if not isinstance(items, list):
+            errors.append(
+                {
+                    "document_index": i,
+                    "status_code": None,
+                    "error": "Field 'Товары' must be a list",
+                }
+            )
+            continue
+
+        doc["Товары"] = [
+            {**item, "LineNumber": idx + 1} for idx, item in enumerate(items)
+        ]
+
+        try:
+            response = requests.post(
+                "https://api.eman.uz/api/odata/eman_materials/Document_ПриобретениеТоваровУслуг?$format=json",
+                json=doc,
+                headers={
+                    "X-API-TOKEN": api_token,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            errors.append(
+                {
+                    "document_index": i,
+                    "status_code": None,
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        if response.status_code == 201:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+
+            results.append(
+                {
+                    "document_index": i,
+                    "ref_key": (payload or {}).get("Ref_Key") if isinstance(payload, dict) else None,
+                    "number": (payload or {}).get("Number") if isinstance(payload, dict) else None,
+                    "full_response": payload if payload is not None else response.text,
+                }
+            )
+        else:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = None
+
+            errors.append(
+                {
+                    "document_index": i,
+                    "status_code": response.status_code,
+                    "error": response.text,
+                    "full_response": error_payload if error_payload is not None else response.text,
+                }
+            )
+
+    return JsonResponse(
+        {
+            "success": len(errors) == 0,
+            "created": results,
+            "errors": errors,
+        }
+    )
 
 
 def index(request):
