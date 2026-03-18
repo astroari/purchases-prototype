@@ -47,7 +47,7 @@ def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
         "Товары": [
             {
                 "Номенклатура_Key": item.get("ref_key"),
-                "Количество": item.get("quantity"),
+                "КоличествоУпаковок": item.get("quantity"),
                 "Цена": item.get("unit_price"),
                 "Сумма": item.get("line_total"),
                 "ЗаказПоставщику_Key": order_ref_keys.get(item.get("order_number")),
@@ -84,7 +84,7 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
             "Товары": [
                 {
                     "Номенклатура_Key": item.get("ref_key"),
-                    "Количество": item.get("quantity"),
+                    "КоличествоУпаковок": item.get("quantity"),
                     "Цена": item.get("unit_price"),
                     "Сумма": item.get("line_total"),
                     "ЗаказПоставщику_Key": order_ref_key,
