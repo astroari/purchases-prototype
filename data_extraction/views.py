@@ -4,7 +4,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from .forms import UploadDocsForm
-from .data_extractor import InvoiceExtractor, build_1c_payloads
+from .data_extractor import InvoiceExtractor, build_1c_payload
 # from . import erp_upload  # TODO: enable when sending data to ERP
 import tempfile
 import os
@@ -40,11 +40,11 @@ def extract_invoice(request):
             for item in invoice_data.get("nomenclature", [])
             if item.get("order_number")
         }
-        documents_to_create = build_1c_payloads(invoice_data, order_ref_keys)
+        document_to_create = build_1c_payload(invoice_data, order_ref_keys)
         return JsonResponse({
             'success': True,
             'confidence': confidence,
-            'documents_to_create': json.loads(json.dumps(documents_to_create, default=str)),
+            'document_to_create': json.loads(json.dumps(document_to_create, default=str)),
         })
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
@@ -57,19 +57,19 @@ def extract_invoice(request):
 @require_POST
 def create_1c_documents(request):
     """
-    API endpoint: POST a list of 1C documents to create in the external 1C system.
-    Expects JSON body: {"documents_to_create": [ ... ]}.
+    API endpoint: POST a single 1C document to create in the external 1C system.
+    Expects JSON body: {"document_to_create": { ... }}.
     """
     try:
         data = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
         return JsonResponse({"success": False, "error": "Invalid JSON payload"}, status=400)
 
-    documents = data.get("documents_to_create", [])
+    doc = data.get("document_to_create")
 
-    if not isinstance(documents, list):
+    if not isinstance(doc, dict):
         return JsonResponse(
-            {"success": False, "error": "'documents_to_create' must be a list"},
+            {"success": False, "error": "'document_to_create' must be an object"},
             status=400,
         )
 
@@ -80,92 +80,66 @@ def create_1c_documents(request):
             status=500,
         )
 
-    results = []
-    errors = []
+    items = doc.get("Товары", [])
+    if not isinstance(items, list):
+        return JsonResponse(
+            {"success": False, "error": "Field 'Товары' must be a list"},
+            status=400,
+        )
 
-    for i, doc in enumerate(documents):
-        if not isinstance(doc, dict):
-            errors.append(
-                {
-                    "document_index": i,
-                    "status_code": None,
-                    "error": "Document must be an object",
-                }
-            )
-            continue
+    doc["Товары"] = [
+        {**item, "LineNumber": idx + 1} for idx, item in enumerate(items)
+    ]
 
-        items = doc.get("Товары", [])
-        if not isinstance(items, list):
-            errors.append(
-                {
-                    "document_index": i,
-                    "status_code": None,
-                    "error": "Field 'Товары' must be a list",
-                }
-            )
-            continue
+    try:
+        response = requests.post(
+            "https://api.eman.uz/api/odata/eman_materials/Document_ПриобретениеТоваровУслуг?$format=json",
+            json=doc,
+            headers={
+                "X-API-TOKEN": api_token,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            timeout=120,
+        )
+    except requests.RequestException as exc:
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(exc),
+            },
+            status=502,
+        )
 
-        doc["Товары"] = [
-            {**item, "LineNumber": idx + 1} for idx, item in enumerate(items)
-        ]
-
+    if response.status_code == 201:
         try:
-            response = requests.post(
-                "https://api.eman.uz/api/odata/eman_materials/Document_ПриобретениеТоваровУслуг?$format=json",
-                json=doc,
-                headers={
-                    "X-API-TOKEN": api_token,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                timeout=120,
-            )
-        except requests.RequestException as exc:
-            errors.append(
-                {
-                    "document_index": i,
-                    "status_code": None,
-                    "error": str(exc),
-                }
-            )
-            continue
+            payload = response.json()
+        except ValueError:
+            payload = None
 
-        if response.status_code == 201:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = None
+        return JsonResponse(
+            {
+                "success": True,
+                "ref_key": (payload or {}).get("Ref_Key") if isinstance(payload, dict) else None,
+                "number": (payload or {}).get("Number") if isinstance(payload, dict) else None,
+                "full_response": payload if payload is not None else response.text,
+            }
+        )
+    else:
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = None
 
-            results.append(
-                {
-                    "document_index": i,
-                    "ref_key": (payload or {}).get("Ref_Key") if isinstance(payload, dict) else None,
-                    "number": (payload or {}).get("Number") if isinstance(payload, dict) else None,
-                    "full_response": payload if payload is not None else response.text,
-                }
-            )
-        else:
-            try:
-                error_payload = response.json()
-            except ValueError:
-                error_payload = None
-
-            errors.append(
-                {
-                    "document_index": i,
-                    "status_code": response.status_code,
-                    "error": response.text,
-                    "full_response": error_payload if error_payload is not None else response.text,
-                }
-            )
-
-    return JsonResponse(
-        {
-            "success": len(errors) == 0,
-            "created": results,
-            "errors": errors,
-        }
-    )
+        return JsonResponse(
+            {
+                "success": False,
+                "status_code": response.status_code,
+                "error": response.text,
+                "full_response": error_payload if error_payload is not None else response.text,
+            },
+            status=502,
+        )
 
 
 def index(request):

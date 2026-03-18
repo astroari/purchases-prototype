@@ -24,10 +24,37 @@ DOCUMENT_ORDER = "Document_ЗаказПоставщику"
 STATIC_KEYS = {
     "Партнер_Key": "a5cfdc09-94ec-11ea-a9b0-505dac4282cc",
     "Контрагент_Key": "a5cfdc0b-94ec-11ea-a9b0-505dac4282cc",
-    "Организация_Key": "6e865905-8095-11ea-a9af-505dac4282cc",
-    "Склад_Key": "0903e520-9f0b-11f0-8c5a-fff9d53af0ac",
+    # "Организация_Key": "6e865905-8095-11ea-a9af-505dac4282cc",
+    # "Склад_Key": "0903e520-9f0b-11f0-8c5a-fff9d53af0ac",
     "Валюта_Key": "a3e66c2c-8095-11ea-a9af-505dac4282cc",
 }
+
+
+def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
+    """
+    Build a single 1C document payload with all nomenclature items.
+    order_ref_keys: {order_number: ref_key}
+    """
+    items = invoice_data.get("nomenclature", [])
+    return {
+        "Date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "ПоступлениеПоЗаказам": True,
+        "Posted": False,
+        "НомерВагонаЗП": "111111",
+        "ХозяйственнаяОперация": "ЗакупкаПоИмпортуТоварыВПути",
+        "Комментарий": "TEST TEST!!",
+        **STATIC_KEYS,
+        "Товары": [
+            {
+                "Номенклатура_Key": item.get("ref_key"),
+                "Количество": item.get("quantity"),
+                "Цена": item.get("unit_price"),
+                "Сумма": item.get("line_total"),
+                "ЗаказПоставщику_Key": order_ref_keys.get(item.get("order_number")),
+            }
+            for item in items
+        ],
+    }
 
 
 def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
@@ -47,7 +74,8 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
         order_ref_key = order_ref_keys.get(order_number)
         payload = {
             "Date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-            "ЗаказПоставщику_Key": order_ref_key,
+            # "ЗаказПоставщику_Key": order_ref_key,
+            "ПоступлениеПоЗаказам": True,
             "Posted": False,
             "НомерВагонаЗП": "111111",
             "ХозяйственнаяОперация": "ЗакупкаПоИмпортуТоварыВПути",
