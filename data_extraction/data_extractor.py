@@ -36,6 +36,26 @@ def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
     order_ref_keys: {order_number: ref_key}
     """
     items = invoice_data.get("nomenclature", [])
+
+    товары = []
+    for item in items:
+        row = {
+            "Номенклатура_Key": item.get("ref_key"),
+            "КоличествоУпаковок": item.get("quantity"),
+            "Цена": item.get("unit_price"),
+            "Сумма": item.get("line_total"),
+            # Prefer already-enriched order ref key; fall back to lookup by order_number.
+            "ЗаказПоставщику_Key": item.get("order_ref_key")
+            or order_ref_keys.get(item.get("order_number")),
+        }
+
+        line_number = item.get("line_number")
+        # Omit LineNumber completely when we don't know it.
+        if line_number is not None:
+            row["LineNumber"] = line_number
+
+        товары.append(row)
+
     return {
         "Date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "ПоступлениеПоЗаказам": True,
@@ -44,16 +64,7 @@ def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
         "ХозяйственнаяОперация": "ЗакупкаПоИмпортуТоварыВПути",
         "Комментарий": "TEST TEST!!",
         **STATIC_KEYS,
-        "Товары": [
-            {
-                "Номенклатура_Key": item.get("ref_key"),
-                "КоличествоУпаковок": item.get("quantity"),
-                "Цена": item.get("unit_price"),
-                "Сумма": item.get("line_total"),
-                "ЗаказПоставщику_Key": order_ref_keys.get(item.get("order_number")),
-            }
-            for item in items
-        ],
+        "Товары": товары,
     }
 
 
@@ -72,6 +83,22 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
     payloads = []
     for order_number, items in grouped.items():
         order_ref_key = order_ref_keys.get(order_number)
+        товары = []
+        for item in items:
+            row = {
+                "Номенклатура_Key": item.get("ref_key"),
+                "КоличествоУпаковок": item.get("quantity"),
+                "Цена": item.get("unit_price"),
+                "Сумма": item.get("line_total"),
+                "ЗаказПоставщику_Key": item.get("order_ref_key") or order_ref_key,
+            }
+
+            line_number = item.get("line_number")
+            if line_number is not None:
+                row["LineNumber"] = line_number
+
+            товары.append(row)
+
         payload = {
             "Date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             # "ЗаказПоставщику_Key": order_ref_key,
@@ -81,16 +108,7 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
             "ХозяйственнаяОперация": "ЗакупкаПоИмпортуТоварыВПути",
             "Комментарий": "TEST TEST!!",
             **STATIC_KEYS,
-            "Товары": [
-                {
-                    "Номенклатура_Key": item.get("ref_key"),
-                    "КоличествоУпаковок": item.get("quantity"),
-                    "Цена": item.get("unit_price"),
-                    "Сумма": item.get("line_total"),
-                    "ЗаказПоставщику_Key": order_ref_key,
-                }
-                for item in items
-            ],
+            "Товары": товары,
         }
         payloads.append(payload)
     return payloads
@@ -191,6 +209,63 @@ def get_order_ref_keys(order_numbers: List[str], batch_size: int = 20) -> Dict[s
             result[item["НомерПоДаннымПоставщика"]] = item["Ref_Key"]
 
     return result
+
+
+def get_order_line_numbers(order_ref_key: str) -> Dict[str, int]:
+    """
+    Fetch line numbers for each nomenclature item inside a 1C order.
+
+    Returns:
+        {Номенклатура_Key: LineNumber}
+    """
+    if not order_ref_key:
+        return {}
+    if not ODATA_API_TOKEN:
+        return {}
+
+    headers = {
+        "X-API-TOKEN": ODATA_API_TOKEN,
+        "Accept": "application/json",
+    }
+
+    # 1C OData key addressing: Document_ЗаказПоставщику(guid'<uuid>')
+    url = f"{ODATA_BASE_URL}/{DOCUMENT_ORDER}(guid'{order_ref_key}')"
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            params={
+                "$format": "json",
+                "$select": "Товары",
+            },
+            timeout=30,
+        )
+    except requests.RequestException:
+        return {}
+
+    if response.status_code != 200:
+        return {}
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return {}
+
+    items = payload.get("Товары") or []
+    # Be defensive: depending on OData wrapper, Товары can be nested.
+    if isinstance(items, dict):
+        items = items.get("value") or items.get("results") or []
+
+    line_numbers: Dict[str, int] = {}
+    for line in items or []:
+        nomen_key = line.get("Номенклатура_Key")
+        line_number = line.get("LineNumber")
+        if nomen_key is None or line_number is None:
+            continue
+        line_numbers[str(nomen_key)] = line_number
+
+    return line_numbers
 
 
 class InvoiceExtractor:
@@ -444,6 +519,7 @@ class InvoiceExtractor:
         Enrich each nomenclature line item with 1C Ref_Keys from the OData API:
         - item['ref_key']: nomenclature (Catalog_Номенклатура) Ref_Key
         - item['order_ref_key']: order document (Document_ЗаказПоставщику) Ref_Key
+        - item['line_number']: line number of the nomenclature inside its order
         If token is missing or API fails, keys stay None.
         """
         nomenclature_list = invoice_data.get("nomenclature") or []
@@ -461,6 +537,27 @@ class InvoiceExtractor:
             item["ref_key"] = ref_keys.get(code) if code else None
             order_num = item.get("order_number")
             item["order_ref_key"] = order_ref_keys.get(order_num) if order_num else None
+
+        # Step 3: fetch order line numbers and map each invoice line to the order line.
+        unique_order_ref_keys = list(
+            dict.fromkeys(
+                item.get("order_ref_key")
+                for item in nomenclature_list
+                if item.get("order_ref_key")
+            )
+        )
+        order_line_numbers_by_order_ref_key = {
+            order_ref_key: get_order_line_numbers(order_ref_key)
+            for order_ref_key in unique_order_ref_keys
+        }
+
+        for item in nomenclature_list:
+            order_ref_key = item.get("order_ref_key")
+            ref_key = item.get("ref_key")
+            line_numbers_for_order = order_line_numbers_by_order_ref_key.get(order_ref_key, {})
+            item["line_number"] = (
+                line_numbers_for_order.get(str(ref_key)) if ref_key else None
+            )
 
         return invoice_data
     
