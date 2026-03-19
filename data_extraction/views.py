@@ -88,11 +88,13 @@ def create_1c_documents(request):
         )
 
     # If КодСтроки is missing/None, omit it entirely.
+    # Always set LineNumber as 1..N (autoincrement).
     new_items = []
-    for item in items:
+    for idx, item in enumerate(items):
         new_item = dict(item)
         if new_item.get("КодСтроки") is None:
             new_item.pop("КодСтроки", None)
+        new_item["LineNumber"] = idx + 1
         new_items.append(new_item)
     doc["Товары"] = new_items
 
