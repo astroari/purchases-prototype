@@ -25,7 +25,7 @@ STATIC_KEYS = {
     "Партнер_Key": "a5cfdc09-94ec-11ea-a9b0-505dac4282cc",
     "Контрагент_Key": "a5cfdc0b-94ec-11ea-a9b0-505dac4282cc",
     # "Организация_Key": "6e865905-8095-11ea-a9af-505dac4282cc",
-    # "Склад_Key": "0903e520-9f0b-11f0-8c5a-fff9d53af0ac",
+    "Склад_Key": "0903e520-9f0b-11f0-8c5a-fff9d53af0ac",
     "Валюта_Key": "a3e66c2c-8095-11ea-a9af-505dac4282cc",
 }
 
