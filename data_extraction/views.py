@@ -87,12 +87,12 @@ def create_1c_documents(request):
             status=400,
         )
 
-    # If LineNumber is missing/None, omit it entirely (don't default to idx+1).
+    # If КодСтроки is missing/None, omit it entirely.
     new_items = []
     for item in items:
         new_item = dict(item)
-        if new_item.get("LineNumber") is None:
-            new_item.pop("LineNumber", None)
+        if new_item.get("КодСтроки") is None:
+            new_item.pop("КодСтроки", None)
         new_items.append(new_item)
     doc["Товары"] = new_items
 

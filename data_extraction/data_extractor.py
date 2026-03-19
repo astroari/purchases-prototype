@@ -49,10 +49,10 @@ def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
             or order_ref_keys.get(item.get("order_number")),
         }
 
-        line_number = item.get("line_number")
-        # Omit LineNumber completely when we don't know it.
-        if line_number is not None:
-            row["LineNumber"] = line_number
+        line_code = item.get("line_number")
+        # Omit КодСтроки completely when we don't know it.
+        if line_code is not None:
+            row["КодСтроки"] = line_code
 
         товары.append(row)
 
@@ -93,9 +93,9 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
                 "ЗаказПоставщику_Key": item.get("order_ref_key") or order_ref_key,
             }
 
-            line_number = item.get("line_number")
-            if line_number is not None:
-                row["LineNumber"] = line_number
+            line_code = item.get("line_number")
+            if line_code is not None:
+                row["КодСтроки"] = line_code
 
             товары.append(row)
 
@@ -211,12 +211,12 @@ def get_order_ref_keys(order_numbers: List[str], batch_size: int = 20) -> Dict[s
     return result
 
 
-def get_order_line_numbers(order_ref_key: str) -> Dict[str, int]:
+def get_order_line_numbers(order_ref_key: str) -> Dict[str, str]:
     """
-    Fetch line numbers for each nomenclature item inside a 1C order.
+    Fetch order row codes for each nomenclature item inside a 1C order.
 
     Returns:
-        {Номенклатура_Key: LineNumber}
+        {Номенклатура_Key: КодСтроки}
     """
     if not order_ref_key:
         return {}
@@ -257,15 +257,15 @@ def get_order_line_numbers(order_ref_key: str) -> Dict[str, int]:
     if isinstance(items, dict):
         items = items.get("value") or items.get("results") or []
 
-    line_numbers: Dict[str, int] = {}
+    line_codes: Dict[str, str] = {}
     for line in items or []:
         nomen_key = line.get("Номенклатура_Key")
-        line_number = line.get("LineNumber")
-        if nomen_key is None or line_number is None:
+        code = line.get("КодСтроки")
+        if nomen_key is None or code is None:
             continue
-        line_numbers[str(nomen_key)] = line_number
+        line_codes[str(nomen_key)] = str(code)
 
-    return line_numbers
+    return line_codes
 
 
 class InvoiceExtractor:
