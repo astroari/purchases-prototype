@@ -42,6 +42,7 @@ def build_1c_payload(invoice_data: dict, order_ref_keys: dict) -> dict:
         row = {
             "Номенклатура_Key": item.get("ref_key"),
             "КоличествоУпаковок": item.get("quantity"),
+            "Количество": item.get("quantity"),
             "Цена": item.get("unit_price"),
             "Сумма": item.get("line_total"),
             # Prefer already-enriched order ref key; fall back to lookup by order_number.
@@ -88,6 +89,7 @@ def build_1c_payloads(invoice_data: dict, order_ref_keys: dict) -> list:
             row = {
                 "Номенклатура_Key": item.get("ref_key"),
                 "КоличествоУпаковок": item.get("quantity"),
+                "Количество": item.get("quantity"),
                 "Цена": item.get("unit_price"),
                 "Сумма": item.get("line_total"),
                 "ЗаказПоставщику_Key": item.get("order_ref_key") or order_ref_key,
