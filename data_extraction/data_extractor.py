@@ -276,7 +276,7 @@ class InvoiceExtractor:
     """Extract structured data from invoice PDFs"""
     
     def __init__(self):
-        self.line_item_pattern = r'^(\d{4,})\s+CA:(\d+)\s+([A-Z]{2})\s+([\d.,]+)\s*([A-Z]+)\s+([\d.,]+)\s+(\d+)\s+([\d.,]+)'
+        self.line_item_pattern = r'^(\d{3,})\s+CA:(\d+)\s+([A-Z]{2})\s+([\d.,]+)\s*([A-Z]+)\s+([\d.,]+)\s+(\d+)\s+([\d.,]+)'
         self.order_pattern = r'^Order\s+(\d+)\s+-\s+(\d{2}\.\d{2}\.\d{4})'
     
     def clean_text(self, text: str) -> str:
