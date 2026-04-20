@@ -387,7 +387,7 @@ class InvoiceExtractor:
                     j = i + 1
                     while j < len(lines):
                         desc_line = lines[j].strip()
-                        if re.match(r'^\d{4,}\s+CA:', desc_line):
+                        if re.match(r'^\d{3,}\s+CA:', desc_line):
                             break
                         if re.match(r'^(Order \d+|Your Order:|Delivery \d+|Ship to)', desc_line, re.I):
                             break
